@@ -1,0 +1,86 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-08-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+Import_variabler_grundvatten <- read_excel("Import variabler grundvatten.xlsx", # ö till o
+                                         col_types = c("text", "text", "text","skip",
+                                                       "skip", "text", "skip", "skip",
+                                                       "skip", "text", "skip", "text"))
+
+```
+
+```{r}
+Import_variabler_grundvatten%>%
+  transmute(Mätvariabel=Namn,
+            `Mätvariabel (Orig)` = NA,
+            Mätvariabelgrupp=NA,
+            `Enhet (grundvatten)`=`Enhet (grundvatten)`,
+            `Beskrivning (grundvatten)`= `Beskrivning (grundvatten)`)%>%
+    write_excel_csv("Outdata\\Tidstrender i grundvatten - Mätvariabler.csv", na = "") 
+
+```
+
+
+```{r}
+grundvattennivå_mannkendall %>%
+  full_join(Import_variabler_grundvatten, by=join_by(name==`DATA ID`))%>%
+  #full_join(vattenkemi_sjo_var) %>%
+  #filter(VariabelID %in% c("Brunhet", "Alkalinitet", "Konduktivitet", "Oorganiskt kväve", "Lättillgänglig fosfor", "Totalkväve", "Totalfosfor", "pH", "Kisel", "Sulfat", "Totalt organiskt kol", "Temperatur - vår"))%>%
+  transmute(`Provplats ID (VISS)`= NA,  
+            `Provplats ID (Stationsregistret)`=ID,
+            #Vattenkategori = "Station", 
+            Mätvariabel=Namn,
+            `Trend` = case_when(p.value < 0.05 & tau > 0 ~ "ökande",
+                                               p.value < 0.05 & tau < 0 ~ "minskande",
+                                               p.value > 0.05 ~ "neutral"),
+            `p-värde` = p.value,
+            # `Medianförändring per år` = case_when(p.value<0.05 & slope==0 ~ NA_real_,
+            #                                       TRUE ~slope),
+            Period=Period)%>%
+  write_excel_csv("Outdata\\Tidstrender i grundvatten - Mann-Kendall.csv",
+                  na = "")
+```
+
+
+```{r}
+gam_models_grundvatten_nivå %>%
+  full_join(Import_variabler_grundvatten, by=join_by(name==`DATA ID`))%>%
+  arrange(ID, Namn, year)%>%
+  # full_join(vattendrag_kemi_vars) %>%
+  #     filter(VariabelID %in% c("Brunhet", "Alkalinitet", "Konduktivitet", "Oorganiskt kväve", "Lättillgänglig fosfor", "Totalkväve", "Totalfosfor", "pH", "Kisel", "Sulfat", "Totalt organiskt kol", "Temperatur - vår", "Temperatur - helår"))%>%
+   transmute(`Provplats ID (VISS)`= NA, 
+            `Provplats ID (Stationsregistret)`=ID,
+            #Vattenkategori = "Station", 
+            Mätvariabel=Namn, 
+            År = year,
+            Årsvärde = variable, 
+           # Standardfel = NA, 
+            `Trendvärde (modellvärde)` = trend%>%as.numeric(), 
+            `Trend (modelltrend)`=case_when(dir== 0 ~ "neutral",
+                                            dir==-1 ~ "minskande",
+                                            dir==1 ~ "ökande"),
+            `Antal mätningar` = NA) %>% 
+  filter(!is.na(Mätvariabel)) %>%
+  write_excel_csv("Outdata\\Tidstrender i grundvatten - Data.csv", na = "")
+```
+
+```{r}
+stationIDs<-read_csv("Indata/stationsinformation.csv")
+
+SGUs_info<-read_excel("Indata/Nivåstationer.xlsx", guess_max=10000)%>%select(NAT_stationsID, eucd_gwb)
+
+grundvattennivå_mannkendall1 %>% ungroup()%>%left_join(stationIDs, by=join_by(ID==provplatsid))%>%select(ID, kommunkod, kommun, lanskod, n, e)%>%mutate(ID=as.character(ID))%>%
+  mutate(Programområde="Grundvatten", Delprogram="")%>%
+  left_join(SGUs_info, by=join_by(ID==NAT_stationsID))%>%rename(Vattenförekomst=eucd_gwb)%>%
+  group_by(ID, kommunkod, kommun, lanskod, n, e, Programområde, Delprogram, Vattenförekomst)%>%unique()%>%
+write_excel_csv("Outdata\\Tidstrender i grundvatten - Metadata.csv", na = "") 
+```
+
